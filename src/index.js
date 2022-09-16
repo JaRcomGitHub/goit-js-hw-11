@@ -8,6 +8,10 @@ const API_KEY = "29840548-44be53550e175681813a70adf";
 const PER_PAGE = 40;
 const PHOTO_LIMIT = 500;
 
+let glPageCnt;
+let glRequestTerm;
+let glSimpleLightbox;
+
 const formEl = document.querySelector('form#search-form');
 const galleryEl = document.querySelector('div.gallery');
 const btnLoadMoreEl = document.querySelector('button.load-more');
@@ -17,8 +21,10 @@ galleryEl.addEventListener('click', onImageGalleryClick);
 btnLoadMoreEl.addEventListener('click', onClickLoadMore);
 
 btnLoadMoreEl.style.display = 'none';
-let glPageCnt;
-let glRequestTerm;
+
+function onImageGalleryClick(event){
+    event.preventDefault();
+}
 
 function getPixabayURL(searchTerm, pageNum) {
   const basePixabayURL = "https://pixabay.com/api/";
@@ -31,26 +37,35 @@ function getPixabayURL(searchTerm, pageNum) {
     per_page: PER_PAGE,
     page: pageNum,
   });
-  // console.log("pageNum = "+pageNum);
   return `${basePixabayURL}?${searchParams}`;
 }
 
-function fetchPixabayPhoto(url) {
-  //return promise
-  return fetch(url)
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(response.status);//for fetch() and 404
-      }
-      return response.json();
-    });
+async function axiosGetPixabayPhoto(url) {
+  try {
+    const response = await axios.get(url);
+    // console.log(response);
+    return response;
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+const getGalleryPhotoByNumPage = (requestTerm, numPage, onSuccess, onError) => {
+  const url = getPixabayURL(requestTerm, numPage);
+  axiosGetPixabayPhoto(url)
+    .then(data => {
+      onSuccess(data);
+  })
+    .catch(error => {
+      console.log(error);
+      onError(error);
+  });
 }
 
 function onFormSubmit(evt) {
   evt.preventDefault();
 
   const requestValue = formEl.searchQuery.value.trim();
-
   if (requestValue === "") {
     return;
   }
@@ -60,57 +75,66 @@ function onFormSubmit(evt) {
   btnLoadMoreEl.style.display = 'none';
   galleryEl.textContent = "";
 
-  const url = getPixabayURL(glRequestTerm, glPageCnt);
-
-  superfun(url);
+  getGalleryPhotoByNumPage(glRequestTerm, glPageCnt, responseGalleryPhoto, gotAnError);
 }
 
-function superfun(url) {
-  fetchPixabayPhoto(url)
-    .then(data => {
-      // console.log(data);
-      // console.log(data.total);
-      // console.log(data.totalHits);
-      
-      const totalHits = data.totalHits;
+function responseGalleryPhoto(data) {
+  // const total = data.data.total;
+  const totalHits = data.data.totalHits;
+  const hits = data.data.hits;
 
-      if (totalHits === 0) {
-        Notiflix.Notify.failure("Sorry, there are no images matching your search query. Please try again.");
-        return;
-      }
-      if (glPageCnt === 1) {
-        Notiflix.Notify.success(`Hooray! We found ${totalHits} images.`); 
-        if (totalHits > PER_PAGE) {
-          btnLoadMoreEl.style.display = 'block';
-        }
-      }
+  // console.log(total);
+  // console.log(totalHits);
+  // console.log(hits);
 
-      const markup = data.hits.map(data => markupPhotoCard(data)).join('');
-      galleryEl.insertAdjacentHTML("beforeend", markup);
-
-      useForGallerySimpleLightbox();
-
-      if ((glPageCnt > 1)&&(data.hits.length < PER_PAGE)) {
-        Notiflix.Notify.info("We're sorry, but you've reached the end of search results.");
-        btnLoadMoreEl.style.display = 'none';
-      }
-  })
-  .catch(error => {
-    console.log(error);
-    // if (error.message == 404) { }
-    if (error.message == 400) {
-      if (glPageCnt > (PHOTO_LIMIT/PER_PAGE)) {
-        Notiflix.Notify.info("The API is limited to return a maximum of 500 images per query.");
-        btnLoadMoreEl.style.display = 'none';
-      }
+  if (totalHits === 0) {
+    Notiflix.Notify.failure(
+      "Sorry, there are no images matching your search query. \
+      Please try again.");
+    return;
+  }
+  
+  renderGalleryPhoto(hits);
+  
+  if (glPageCnt === 1) {
+    glSimpleLightbox = new SimpleLightbox('.gallery a');
+    Notiflix.Notify.success(`Hooray! We found ${totalHits} images.`); 
+    if (totalHits > PER_PAGE) {
+      btnLoadMoreEl.style.display = 'block';
     }
-  });
+  } else {
+    glSimpleLightbox.refresh();
+  }
+
+  if ((glPageCnt > 1)&&(hits.length < PER_PAGE)) {
+    Notiflix.Notify.info("We're sorry, but you've reached the end of search results.");
+    btnLoadMoreEl.style.display = 'none';
+  }
+}
+
+function gotAnError(error) {
+  //if (error.message == 404) { }
+  if (error.message == 400) {
+    if (glPageCnt > (PHOTO_LIMIT/PER_PAGE)) {
+      Notiflix.Notify.info("The API is limited to return a maximum of 500 images per query.");
+      btnLoadMoreEl.style.display = 'none';
+    }
+  }
 }
 
 function onClickLoadMore() {
   glPageCnt += 1;
-  const url = getPixabayURL(glRequestTerm, glPageCnt);
-  superfun(url);
+  getGalleryPhotoByNumPage(glRequestTerm, glPageCnt, responseGalleryPhoto, gotAnError);
+}
+
+function renderGalleryPhoto(arrayPhoto) {
+  const markup = arrayPhoto.map(data => markupPhotoCard(data)).join('');
+
+  galleryEl.insertAdjacentHTML("beforeend", markup);
+}
+
+function useForGallerySimpleLightbox(){
+  new SimpleLightbox('.gallery a');
 }
 
 function markupPhotoCard(
@@ -142,17 +166,3 @@ function markupPhotoCard(
   </a>
   `;
 }
-
-function onImageGalleryClick(event){
-    event.preventDefault();
-}
-
-function useForGallerySimpleLightbox(){
-    new SimpleLightbox('.gallery a');
-}
-
-// axios.get('/users')
-//   .then(res => {
-//     console.log(res.data);
-//   });
-
